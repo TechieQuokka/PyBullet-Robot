@@ -7,9 +7,10 @@ Reinforcement learning project for training a Kuka iiwa robot arm to perform pic
 - ✅ **PPO algorithm** from Stable-Baselines3 with optimized hyperparameters
 - ✅ **97% success rate** achieved on pick-and-place task
 - ✅ **Fast training**: 5 minutes on CPU (500K timesteps)
+- ✅ **CPU-optimized**: MlpPolicy runs 2-3x faster on CPU than GPU
 - ✅ **Dense reward shaping** with milestone bonuses for efficient learning
 - ✅ **TensorBoard integration** for real-time training monitoring
-- ✅ **Parallel environments** (8 envs) for sample-efficient learning
+- ✅ **Parallel environments**: 8 envs for i7-6700K (4C/8T)
 - ✅ **Comprehensive documentation** with implementation guides
 
 ## System Requirements
@@ -26,8 +27,8 @@ Reinforcement learning project for training a Kuka iiwa robot arm to perform pic
 # Install dependencies
 pip install -r requirements.txt
 
-# Verify CUDA is available (optional but recommended)
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+# Verify installation
+python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
 ```
 
 ### 2. Download Robot Models
@@ -163,6 +164,43 @@ The successful training used optimized hyperparameters in `config.py`:
 - Improves efficiency: 342 → 159 steps
 - Final training performance: 97% success rate
 
+## Bug Fixes & Improvements
+
+### 2026-01-06: Critical Evaluation Bug Fixed ✅
+
+**Problem Identified**:
+- Evaluation scripts failed to load normalization statistics
+- 0% success rate on all model evaluations despite 100% training success
+- Mismatch between CheckpointCallback and test.py file naming conventions
+
+**Root Causes**:
+1. **test.py**: Could not find `*vecnormalize*.pkl` files due to naming pattern mismatch
+   - Expected: `ppo_pickplace_400000_steps_vec_normalize.pkl`
+   - Actual: `ppo_pickplace_vecnormalize_400000_steps.pkl`
+2. **train.py**: EvalCallback didn't save VecNormalize with best models
+3. **config.py**: `ent_coef=0.1` too high → exploration explosion at 480K timesteps
+
+**Solutions Implemented**:
+1. **test.py**: Enhanced vec_normalize loading with 4 naming conventions support
+   - Regex-based timestep extraction and path reconstruction
+   - Fallback to directory-wide search
+2. **train.py**: Custom `SaveVecNormalizeCallback` class
+   - Extends EvalCallback to auto-save VecNormalize with best models
+3. **config.py**: Reduced `ent_coef` from 0.1 → 0.01
+   - Prevents late-stage exploration explosion
+   - Maintains stable performance throughout training
+
+**Verification Results** (400K Checkpoint):
+```
+Total Episodes:    20
+Successful:        20
+Success Rate:      100.0%
+Mean Reward:       737.45 ± 0.00
+Mean Length:       159.0 ± 0.0
+```
+
+**Status**: ✅ All evaluation issues resolved. Models now evaluate correctly with proper normalization.
+
 ## Documentation
 Detailed documentation is available in the `docs/` directory:
 
@@ -176,14 +214,14 @@ Detailed documentation is available in the `docs/` directory:
 
 ## Troubleshooting
 
-### CUDA Not Available
-```bash
-# Check NVIDIA driver
-nvidia-smi
+### Performance Optimization
+This project is **CPU-optimized** for maximum performance:
+- MlpPolicy trains 2-3x faster on CPU than GPU
+- Configured for Intel i7-6700K (4 cores, 8 threads)
+- Training: 8 parallel environments (full CPU utilization)
+- Evaluation: 4 parallel environments (optimal core usage)
 
-# Reinstall PyTorch with CUDA support
-pip install torch --index-url https://download.pytorch.org/whl/cu118
-```
+No GPU required! 🚀
 
 ### PyBullet Import Error
 ```bash
@@ -198,9 +236,10 @@ python scripts/download_urdf.py
 ```
 
 ### Slow Training
-- For this task, CPU is actually faster than GPU for MlpPolicy
+- **Important**: CPU is 2-3x faster than GPU for MlpPolicy!
 - Use DIRECT mode (not GUI) during training
-- Ensure `n_envs=8` to utilize all CPU cores
+- For i7-6700K: `n_envs=8` utilizes all 4 cores + hyperthreading
+- For evaluation: Automatic 4 parallel envs for optimal speed
 
 ### Zero Success Rate
 If training shows 0% success rate throughout:

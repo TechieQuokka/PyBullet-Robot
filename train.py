@@ -9,7 +9,8 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import (
     CheckpointCallback,
     EvalCallback,
-    CallbackList
+    CallbackList,
+    BaseCallback
 )
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
@@ -22,6 +23,28 @@ from config import (
     logging_config
 )
 from utils import create_normalized_env
+
+
+class SaveVecNormalizeCallback(EvalCallback):
+    """
+    Custom EvalCallback that also saves VecNormalize statistics with best model
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def _on_step(self) -> bool:
+        # Call parent's _on_step (handles evaluation and best model saving)
+        continue_training = super()._on_step()
+
+        # After parent saves best model, also save VecNormalize if it was updated
+        if self.best_mean_reward == self.last_mean_reward:  # Best model was just saved
+            if isinstance(self.training_env, VecNormalize):
+                vec_normalize_path = os.path.join(self.best_model_save_path, 'vec_normalize.pkl')
+                self.training_env.save(vec_normalize_path)
+                if self.verbose > 0:
+                    print(f"Saved VecNormalize to {vec_normalize_path}")
+
+        return continue_training
 
 
 def create_directories() -> None:
@@ -57,15 +80,16 @@ def setup_callbacks(eval_env: VecNormalize) -> CallbackList:
         save_vecnormalize=True
     )
 
-    # Evaluation callback - evaluate and save best model
-    eval_callback = EvalCallback(
+    # Evaluation callback - evaluate and save best model with VecNormalize
+    eval_callback = SaveVecNormalizeCallback(
         eval_env,
         best_model_save_path=logging_config.best_model_dir,
         log_path='./logs/eval/',
         eval_freq=training_config.eval_freq,
         n_eval_episodes=training_config.n_eval_episodes,
         deterministic=True,
-        render=False
+        render=False,
+        verbose=1
     )
 
     # Combine callbacks

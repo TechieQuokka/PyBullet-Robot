@@ -26,37 +26,71 @@ def evaluate_model(model_path: str, n_episodes: int = 100, render: bool = False)
     """
     print(f"Loading model from: {model_path}")
 
-    # Load model
-    model = PPO.load(model_path)
+    # Load model - Force CPU device (optimal for MlpPolicy)
+    print("Using CPU device for evaluation (optimal for this model)")
+    model = PPO.load(model_path, device='cpu')
 
-    # Create evaluation environment
+    # Create evaluation environment (single env like EvalCallback)
     render_mode = "human" if render else None
     env = create_normalized_env(n_envs=1, render_mode=render_mode, training=False)
 
     # Try to load normalization statistics
-    vec_normalize_paths = [
-        model_path.replace('.zip', '') + '_vec_normalize.pkl',  # CheckpointCallback format
-        os.path.join(os.path.dirname(model_path), 'vec_normalize.pkl'),  # Directory format
-    ]
+    # Support multiple naming conventions:
+    # 1. EvalCallback: {model_dir}/vec_normalize.pkl
+    # 2. CheckpointCallback old: {model_name}_vec_normalize.pkl
+    # 3. CheckpointCallback new: {prefix}_vecnormalize_{steps}_steps.pkl
+
+    import re
+    import glob
+
+    model_dir = os.path.dirname(model_path)
+    model_filename = os.path.basename(model_path).replace('.zip', '')
+
+    vec_normalize_paths = []
+
+    # Format 1: Directory format (final models, eval callback)
+    vec_normalize_paths.append(os.path.join(model_dir, 'vec_normalize.pkl'))
+
+    # Format 2: Old checkpoint format
+    vec_normalize_paths.append(os.path.join(model_dir, f'{model_filename}_vec_normalize.pkl'))
+
+    # Format 3: CheckpointCallback format - extract steps and reconstruct name
+    # Example: ppo_pickplace_400000_steps.zip -> ppo_pickplace_vecnormalize_400000_steps.pkl
+    steps_match = re.search(r'_(\d+)_steps$', model_filename)
+    if steps_match:
+        steps = steps_match.group(1)
+        prefix = model_filename.split(f'_{steps}_steps')[0]
+        checkpoint_format = os.path.join(model_dir, f'{prefix}_vecnormalize_{steps}_steps.pkl')
+        vec_normalize_paths.append(checkpoint_format)
+
+    # Format 4: Fallback - search for any vecnormalize file in directory
+    vecnorm_files = glob.glob(os.path.join(model_dir, '*vecnormalize*.pkl'))
+    vec_normalize_paths.extend(vecnorm_files)
+
+    # Remove duplicates while preserving order
+    vec_normalize_paths = list(dict.fromkeys(vec_normalize_paths))
 
     vec_normalize_loaded = False
     for vec_normalize_path in vec_normalize_paths:
         try:
-            env = VecNormalize.load(vec_normalize_path, env)
-            env.training = False
-            env.norm_reward = False
-            print(f"Loaded normalization stats from: {vec_normalize_path}")
-            vec_normalize_loaded = True
-            break
-        except FileNotFoundError:
+            if os.path.exists(vec_normalize_path):
+                env = VecNormalize.load(vec_normalize_path, env)
+                env.training = False
+                env.norm_reward = False
+                print(f"Loaded normalization stats from: {vec_normalize_path}")
+                vec_normalize_loaded = True
+                break
+        except (FileNotFoundError, Exception) as e:
             continue
 
     if not vec_normalize_loaded:
         print("Warning: Normalization stats not found in any expected location")
-        print(f"Searched paths: {vec_normalize_paths}")
+        print(f"Searched paths:")
+        for path in vec_normalize_paths[:5]:  # Show first 5 paths
+            print(f"  - {path}")
         print("Continuing without normalization - results may be inaccurate")
 
-    # Evaluation loop
+    # Evaluation loop (matches EvalCallback behavior)
     episode_rewards = []
     episode_lengths = []
     success_count = 0
@@ -66,28 +100,35 @@ def evaluate_model(model_path: str, n_episodes: int = 100, render: bool = False)
 
     for episode in range(n_episodes):
         obs = env.reset()
-        done = False
-        episode_reward = 0
+        episode_reward = 0.0
         episode_length = 0
+        done = False
 
-        while True:
+        while not done:
             # Predict action (deterministic)
             action, _states = model.predict(obs, deterministic=True)
 
-            # Step environment
-            obs, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
+            # Step environment - handle both old (4-value) and new (5-value) Gym API
+            step_result = env.step(action)
+
+            if len(step_result) == 5:
+                # New Gymnasium API: (obs, reward, terminated, truncated, info)
+                obs, reward, terminated, truncated, info = step_result
+                done = terminated[0] or truncated[0]
+            else:
+                # Old Gym API: (obs, reward, done, info)
+                obs, reward, done_array, info = step_result
+                done = done_array[0]
 
             episode_reward += reward[0]
             episode_length += 1
 
-            if done:
-                if info[0].get('is_success', False):
-                    success_count += 1
-                break
-
+        # Episode finished
         episode_rewards.append(episode_reward)
         episode_lengths.append(episode_length)
+
+        if info[0].get('is_success', False):
+            success_count += 1
 
         if (episode + 1) % 10 == 0:
             print(f"Episode {episode + 1}/{n_episodes} - "

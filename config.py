@@ -18,7 +18,7 @@ class PPOConfig:
     gae_lambda: float = 0.95
     clip_range: float = 0.2
     clip_range_vf: Optional[float] = None
-    ent_coef: float = 0.1  # Much more exploration
+    ent_coef: float = 0.01  # Reduced from 0.1 to prevent exploration explosion
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     target_kl: Optional[float] = None
