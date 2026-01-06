@@ -10,7 +10,7 @@ from typing import Optional, List
 @dataclass
 class PPOConfig:
     """PPO algorithm hyperparameters - Optimized for parallel environments"""
-    learning_rate: float = 1e-4  # Reduced for more stable learning
+    learning_rate: float = 3e-4  # Higher learning rate for faster learning
     n_steps: int = 2048  # Per environment (total buffer = 2048 * 8 = 16,384)
     batch_size: int = 1024  # Scaled with n_envs (128 * 8) for efficient updates
     n_epochs: int = 10
@@ -18,7 +18,7 @@ class PPOConfig:
     gae_lambda: float = 0.95
     clip_range: float = 0.2
     clip_range_vf: Optional[float] = None
-    ent_coef: float = 0.02  # Increased for more exploration
+    ent_coef: float = 0.1  # Much more exploration
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     target_kl: Optional[float] = None
@@ -44,53 +44,53 @@ class EnvConfig:
     # Simulation
     timestep: float = 1/240
     gravity: float = -9.81
-    max_episode_steps: int = 200
+    max_episode_steps: int = 1000  # Very long episodes for learning
 
     # Robot
-    max_joint_velocity: float = 0.5
-    joint_force: float = 150
+    max_joint_velocity: float = 2.0  # Much faster movement
+    joint_force: float = 200  # Stronger joints
 
     # Objects
     cube_size: float = 0.05
-    cube_mass: float = 0.1
+    cube_mass: float = 0.05  # Lighter cube
 
     # Task
     cube_start_pos: List[float] = None
     target_pos: List[float] = None
-    success_distance: float = 0.05
-    gripper_attach_distance: float = 0.03
+    success_distance: float = 0.08  # More lenient success criteria
+    gripper_attach_distance: float = 0.08  # Much easier to grasp
 
     def __post_init__(self):
         if self.cube_start_pos is None:
-            self.cube_start_pos = [0.5, 0.0, 0.05]
+            self.cube_start_pos = [0.35, 0.0, 0.05]  # Much closer to robot
         if self.target_pos is None:
-            self.target_pos = [0.5, 0.2, 0.05]
+            self.target_pos = [0.35, 0.08, 0.05]  # Very short distance (8cm)
 
 
 @dataclass
 class RewardConfig:
     """Reward function parameters - Improved dense reward shaping"""
     # Dense rewards for continuous feedback
-    distance_reward_scale: float = 10.0  # Scale for distance-based rewards
-    reach_reward_coef: float = 1.0  # Coefficient for reaching phase
-    lift_reward_coef: float = 2.0  # Coefficient for lifting cube
-    place_reward_coef: float = 1.5  # Coefficient for placing phase
+    distance_reward_scale: float = 50.0  # Very strong learning signal
+    reach_reward_coef: float = 3.0  # High reward for approaching
+    lift_reward_coef: float = 4.0  # High reward for lifting
+    place_reward_coef: float = 3.0  # High reward for placing
 
     # Milestone bonuses for major achievements
-    approach_bonus: float = 10.0  # When gripper gets close to cube
-    grasp_bonus: float = 50.0  # When cube is grasped
-    lift_bonus: float = 30.0  # When cube is lifted above table
-    success_bonus: float = 200.0  # When cube reaches target
+    approach_bonus: float = 50.0  # Big bonus when getting close
+    grasp_bonus: float = 100.0  # Big bonus for grasping
+    lift_bonus: float = 80.0  # Big bonus for lifting
+    success_bonus: float = 500.0  # Huge success bonus
 
     # Penalties to discourage bad behavior
-    time_penalty: float = -0.01  # Small penalty per step
-    collision_penalty: float = -1.0  # Collision with environment
-    drop_penalty: float = -10.0  # Dropping the cube
-    distance_penalty: float = -0.001  # Very small penalty for being far
+    time_penalty: float = -0.002  # Minimal time penalty
+    collision_penalty: float = -0.5  # Reduced collision penalty
+    drop_penalty: float = -5.0  # Reduced drop penalty
+    distance_penalty: float = 0.0  # No distance penalty
 
     # Thresholds for milestone detection
-    approach_threshold: float = 0.1  # Distance to trigger approach bonus
-    lift_height_threshold: float = 0.1  # Height to trigger lift bonus
+    approach_threshold: float = 0.15  # Easier to trigger approach bonus
+    lift_height_threshold: float = 0.08  # Lower lift threshold
 
 
 @dataclass
